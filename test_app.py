@@ -95,6 +95,23 @@ class SiteTests(unittest.TestCase):
   self.assertTrue((self.path/'photos'/f'{new_id}.jpg').exists())
   response=self.client.post('/photos/'+new_id+'/delete',data={'csrf':self.token()},headers={'Accept':'application/json'})
   self.assertTrue(response.json['success']);self.assertNotIn(new_id,response.json['gallery'])
+ def test_homepage_portraits_are_separate_and_persistent(self):
+  self.login()
+  self.post('/crew/Gabby/photos',{'kind':'recent','photos':(self.image(),'recent.png'),'caption':'Keep this memory'})
+  self.post('/crew/Gabby/photos',{'kind':'profile','photos':(self.image(),'portrait.png'),'caption':'Gabby portrait'})
+  with sqlite3.connect(self.path/'trf.sqlite3') as c:
+   ident=c.execute("SELECT id FROM photos WHERE kind='profile'").fetchone()[0]
+  html=self.client.get('/').data.decode()
+  self.assertIn('Gabby’s portrait',html);self.assertIn('/photos/'+ident,html)
+  self.assertNotIn('Gabby portrait',self.client.get('/halloween').data.decode())
+  self.assertIn('Homepage Portrait',self.client.get('/crew/Gabby').data.decode())
+  self.post('/crew/Gabby/photos',{'kind':'profile','photos':(self.image(),'extra.png')})
+  with sqlite3.connect(self.path/'trf.sqlite3') as c:self.assertEqual(c.execute("SELECT count(*) FROM photos WHERE kind='profile'").fetchone()[0],1)
+  self.post('/crew/Gabby/photos',{'kind':'profile','replace_id':ident,'photos':(self.image(),'replacement.png')})
+  self.assertIn(b'Keep this memory',self.client.get('/').data)
+  self.app=create_app({'TESTING':True,'DATA_DIR':self.path,'PASSWORD_HASH':generate_password_hash('test-password')})
+  self.client=self.app.test_client();self.login()
+  self.assertIn('Gabby’s portrait',self.client.get('/').data.decode())
  def test_summer_and_camp(self):
   self.login()
   self.assertIn(b'Summer 2026',self.client.get('/editions').data)

@@ -65,3 +65,5 @@ else:
             print(kind, 'records:', len(ids), 'missing image files:', sum(not (p/'photos'/f'{i}.jpg').exists() for i in ids))
 PY
 ```
+
+Homepage avatars use each person’s separately uploaded Homepage Portrait. Colorful initials appear until a portrait is supplied. Portraits use the same protected persistent storage as other images, with a one-portrait limit per friend; they do not consume recent-photo slots or appear in Halloween Archives.

@@ -86,13 +86,13 @@ def create_app(config=None):
  @app.get('/')
  @private
  def home():
-  responses,photos=all_data();return render_template('home.html',completed=responses,photos=[p for p in photos if p['kind']=='recent'])
+  responses,photos=all_data();return render_template('home.html',completed=responses,photos=[p for p in photos if p['kind']=='recent'],portraits={p['name']:p for p in photos if p['kind']=='profile'})
  @app.route('/updates',methods=['GET','POST'])
  @private
  def updates():
   with db() as c:
    if request.method=='POST':
-    answers={k:request.form.get(k,'')[:5000] for k,_ in GROUP_FIELDS};c.execute('INSERT OR REPLACE INTO group_updates VALUES(1,?)',(json.dumps(answers),));flash('Group updates saved.');return redirect(url_for('updates'))
+    answers={k:request.form.get(k,'')[:5000] for k,_ in GROUP_FIELDS};c.execute('INSERT OR REPLACE INTO group_updates VALUES(1,?)',(json.dumps(answers),));flash('Saved! The group scoop is officially in the loop.');return redirect(url_for('updates'))
    row=c.execute('SELECT answers FROM group_updates WHERE id=1').fetchone()
   return render_template('updates.html',fields=GROUP_FIELDS,answers=json.loads(row[0]) if row else {})
  @app.route('/crew/<name>',methods=['GET','POST'])
@@ -103,7 +103,7 @@ def create_app(config=None):
    if request.method=='POST':
     answers={k:request.form.get(k,'')[:3000] for k,_ in FIELDS}
     c.execute('INSERT OR REPLACE INTO responses VALUES(?,?,datetime("now"))',(name,json.dumps(answers)))
-    flash('Your answers are saved. Next: choose photos and upload them.');return redirect(url_for('member',name=name,_anchor='photos'))
+    flash('Saved! You’ve got a way with updates. Next up: give us your best shots!');return redirect(url_for('member',name=name,_anchor='photos'))
    row=c.execute('SELECT * FROM responses WHERE name=?',(name,)).fetchone()
    photos=c.execute('SELECT * FROM photos WHERE name=? ORDER BY rowid',(name,)).fetchall()
   groups=[];offset=0
@@ -128,9 +128,9 @@ def create_app(config=None):
   if name not in NAMES:abort(404)
   kind=request.form.get('kind');files=[f for f in request.files.getlist('photos') if f.filename]
   replace_id=request.form.get('replace_id')
-  if kind not in ('recent','childhood') or not files:return upload_result(name,'Choose a photo first.')
-  if len(files)>(1 if replace_id or kind=='childhood' else 5):
-   return upload_result(name,'Choose one replacement or childhood photo, or up to 5 recent photos.')
+  if kind not in ('recent','childhood','profile') or not files:return upload_result(name,'Choose a photo first.')
+  if len(files)>(1 if replace_id or kind in ('childhood','profile') else 5):
+   return upload_result(name,'Choose one portrait, replacement, or childhood photo, or up to 5 recent photos.')
   prepared=[]
   try:
    for f in files:
@@ -152,7 +152,7 @@ def create_app(config=None):
      if not old:return upload_result(name,'That photo is no longer available to replace. Refresh and try again.',status=409)
     count=c.execute('SELECT count(*) FROM photos WHERE name=? AND kind=?',(name,kind)).fetchone()[0]
     if count+len(prepared)-(1 if old else 0)>(5 if kind=='recent' else 1):
-     return upload_result(name,'Keep up to 5 recent photos and one childhood photo. Use Replace or Remove on an existing photo.')
+     return upload_result(name,'Keep up to 5 recent photos, one childhood photo, and one portrait. Use Replace or Remove on an existing photo.')
     caption=request.form.get('caption',old['caption'] if old else '')[:300]
     for ident,content in prepared:
      path=data/'photos'/f'{ident}.jpg';written.append(path);path.write_bytes(content)
@@ -165,7 +165,7 @@ def create_app(config=None):
   if replace_id:
    try:(data/'photos'/f'{replace_id}.jpg').unlink(missing_ok=True)
    except OSError:app.logger.warning('Old replacement file could not be removed')
-  return upload_result(name,'Uploaded ✓ — your photos are saved.' if not replace_id else 'Uploaded ✓ — your replacement is saved.',success=True)
+  return upload_result(name,'Uploaded ✓ — picture perfect! Your photos are saved.' if not replace_id else 'Uploaded ✓ — a fresh take! Your replacement is saved.',success=True)
  @app.get('/photos/<ident>')
  @private
  def photo(ident):

@@ -36,7 +36,7 @@
     if (form.matches('.remove-photo') && !confirm('Remove this saved photo?')) return;
     const data = new FormData(form);
     const files = data.getAll('photos').filter(f => f instanceof File && f.size);
-    const max = data.get('replace_id') || data.get('kind') === 'childhood' ? 1 : 5;
+    const max = data.get('replace_id') || data.get('kind') !== 'recent' ? 1 : 5;
     if (files.length > max || files.some(f => f.size > 10 * 1024 * 1024)) {
       announce(`Choose up to ${max} photo${max === 1 ? '' : 's'}, each 10 MB or smaller.`); return;
     }
