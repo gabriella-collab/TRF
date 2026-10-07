@@ -159,6 +159,16 @@ def create_app(config=None):
  @private
  def halloween():
   responses,photos=all_data();return render_template('collection.html',title='Halloween, way back.',eyebrow='Our childhood costume archive',responses=responses,photos=[p for p in photos if p['kind']=='childhood'],field='q9')
+ @app.get('/summer')
+ @private
+ def summer():return render_template('summer.html')
+ @app.get('/summer/newsletter.pdf')
+ @private
+ def summer_pdf():
+  return send_file(Path(__file__).parent/'content'/'summer-2026.pdf',mimetype='application/pdf',as_attachment=request.args.get('download')=='1',download_name='TRF-Summer-2026.pdf')
+ @app.get('/camp')
+ @private
+ def camp():return render_template('camp.html')
  @app.get('/editions')
  @private
  def editions():return render_template('editions.html')

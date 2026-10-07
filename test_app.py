@@ -18,7 +18,7 @@ class SiteTests(unittest.TestCase):
  def image(self):
   b=io.BytesIO();Image.new('RGB',(20,20),'red').save(b,'PNG');b.seek(0);return b
  def test_private_routes_and_csrf(self):
-  for route in ['/','/updates','/crew/Abby','/gratitude','/halloween','/editions','/photos/unknown']:
+  for route in ['/','/updates','/crew/Abby','/gratitude','/halloween','/editions','/photos/unknown','/summer','/summer/newsletter.pdf','/summer/newsletter.pdf?download=1','/camp']:
    self.assertEqual(self.client.get(route).status_code,302)
   self.assertEqual(self.client.post('/login',data={'password':'test-password'}).status_code,400)
   self.client.get('/login')
@@ -49,6 +49,23 @@ class SiteTests(unittest.TestCase):
   self.post('/crew/Abby/photos',{'kind':'recent','photos':(io.BytesIO(b'fake'),'fake.png')})
   self.post('/logout');self.assertEqual(self.client.get('/photos/'+ident).status_code,302)
   self.login();self.post('/photos/'+ident+'/delete');self.assertEqual(self.client.get('/photos/'+ident).status_code,404)
+ def test_summer_and_camp(self):
+  self.login()
+  self.assertIn(b'Summer 2026',self.client.get('/editions').data)
+  self.assertIn(b'Read the newsletter',self.client.get('/summer').data)
+  response=self.client.get('/summer/newsletter.pdf')
+  self.assertEqual(response.status_code,200)
+  self.assertTrue(response.data.startswith(b'%PDF-'))
+  self.assertEqual(response.headers['Cache-Control'],'no-store')
+  response.close()
+  response=self.client.get('/summer/newsletter.pdf?download=1')
+  self.assertIn('attachment',response.headers['Content-Disposition'])
+  response.close()
+  camp=self.client.get('/camp').data.decode()
+  self.assertIn('July 9–11, 2027',camp)
+  self.assertIn('Details coming soon',camp)
+  self.post('/logout')
+  self.assertEqual(self.client.get('/summer/newsletter.pdf').status_code,302)
  def test_login_rate_limit(self):
   self.client.get('/login')
   for _ in range(10):self.assertEqual(self.client.post('/login',data={'csrf':self.token(),'password':'wrong'}).status_code,401)

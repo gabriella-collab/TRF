@@ -1,6 +1,6 @@
 # TRF
 
-A private Fall 2026 newsletter for eleven friends. Includes the TRF logo, personal seasonal forms, group notes, gratitude, childhood Halloween archive, and photo uploads. The edition shelf currently contains Fall 2026 only; automatic seasonal rollover and historical snapshots are not implemented.
+A private Fall 2026 newsletter for eleven friends. Includes the TRF logo, personal seasonal forms, group notes, gratitude, childhood Halloween archive, and photo uploads. The edition shelf includes Fall 2026 and the original 25-page Summer 2026 PDF, served through authenticated routes. CAMP TRF 2027 has a landing page for July 9–11, 2027. Automatic seasonal rollover and historical snapshots are not implemented.
 
 ## Run
 
