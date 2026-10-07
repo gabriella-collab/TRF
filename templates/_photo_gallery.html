@@ -1,0 +1,12 @@
+{% for kind,heading in [('recent','Recent Photos'),('childhood','Childhood Halloween Photo')] %}
+<section class="saved-photo-section" aria-label="{{ heading }}">
+<h3>{{ heading }} <span class="small">{{ photos|selectattr('kind','equalto',kind)|list|length }} / {{ 5 if kind=='recent' else 1 }}</span></h3>
+{% if kind=='childhood' %}<p class="small">Automatically shared in <a href="{{ url_for('halloween') }}">Halloween Archives</a>.</p>{% else %}<p class="small">Automatically shared with {{ name }}’s update on the <a href="{{ url_for('home') }}#update-{{ name }}">TRF homepage</a>.</p>{% endif %}
+<div class="photo-grid">
+{% for p in photos if p.kind==kind %}
+<figure data-photo-id="{{ p.id }}"><a href="{{ url_for('photo',ident=p.id) }}" target="_blank" rel="noopener"><img src="{{ url_for('photo',ident=p.id) }}" alt="{{ p.caption or ('Photo shared by ' + name) }}"></a>
+<figcaption><span class="uploaded">Uploaded ✓</span>{% if p.caption %}<p>{{ p.caption }}</p>{% endif %}</figcaption>
+<details><summary>Replace photo</summary><form class="replace-photo photo-action" method="post" enctype="multipart/form-data" action="{{ url_for('upload',name=name) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="replace_id" value="{{ p.id }}"><input type="hidden" name="kind" value="{{ p.kind }}"><label for="replace-{{ p.id }}">Choose a replacement</label><input id="replace-{{ p.id }}" name="photos" type="file" accept="image/jpeg,image/png,image/webp" required><label for="caption-{{ p.id }}">Caption (optional)</label><input id="caption-{{ p.id }}" name="caption" value="{{ p.caption }}" maxlength="300"><button>Upload replacement</button><p class="small">Your original stays saved until the replacement succeeds.</p></form></details>
+<form class="remove-photo photo-action" method="post" action="{{ url_for('delete_photo',ident=p.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="text-button">Remove photo</button></form></figure>
+{% else %}<p class="small">No {{ 'recent photos' if kind=='recent' else 'childhood photo' }} uploaded yet.</p>{% endfor %}
+</div></section>{% endfor %}

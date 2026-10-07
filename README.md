@@ -27,9 +27,9 @@ Changing the password does not revoke existing sessions. To revoke all sessions,
 
 Deploy behind HTTPS and set `TRF_SECURE_COOKIES=1`. Set `TRF_DATA_DIR` to a persistent private volume. This directory contains the SQLite database, normalized JPEG photos, signing key, and local password. Back it up securely using SQLite's backup API for the database. Never expose it as a static directory. The application protects page routes and photo routes; public static assets contain only styling and the logo.
 
-A shared password gives all signed-in friends access to edit every page. Names are not individual identities. Concurrent editing uses the last saved submission. Selecting photos does not save unsaved text answers; save answers first.
+A shared password gives all signed-in friends access to edit every page. Names are not individual identities. Concurrent editing uses the last saved submission. The mobile flow is Save my answers → Choose photos → Upload photos → Uploaded ✓ thumbnails. Uploads update the gallery in place without clearing unsaved answers. Recent photos automatically appear with their owner’s update on the homepage; childhood photos and captions appear in Halloween Archives. Selecting photos does not save unsaved text answers; save answers first.
 
-Each image upload is limited to 10 MB, five recent photos, and one childhood photo per friend. Images are decoded and re-encoded as JPEG with no location metadata. HEIC is not supported: export it as JPG first. Captions apply to all photos in an upload batch. Remove and upload again to replace a photo or caption.
+Each image upload is limited to 10 MB, five recent photos, and one childhood photo per friend. Images are decoded and re-encoded as JPEG with no location metadata. HEIC is not supported: export it as JPG first. Captions apply to all photos in an upload batch. Use Replace photo to choose a new photo or caption; the original remains saved until the replacement succeeds.
 
 The homepage does not use the deck's cover photo as a real group portrait. It uses a typographic collage until an approved photo is provided.
 
@@ -43,3 +43,25 @@ cd /workspace/TRF
 Tests cover private routes, CSRF, incorrect passwords and throttling, all eleven pages, response persistence across app restarts, group updates, derived gratitude/Halloween content, output escaping, uploads, photo access, count limits, invalid files, deletion, and logout.
 
 No hosting deployment or public URL is created by running this repository.
+
+## Existing uploads and Render storage checks
+
+This update keeps the same SQLite schema and storage paths; it does not migrate, reset, or delete existing uploads. Render's Blueprint provisions a persistent disk mounted at `/var/data` and sets `TRF_DATA_DIR=/var/data/trf`. Confirm that disk and variable exist on the deployed service under Disks and Environment. A configured Blueprint is not proof the live service has that disk. Do not change the data directory or remove the disk to troubleshoot: it can make existing files appear missing. If the live service used ephemeral storage previously, recover available files before changing its setup.
+
+To diagnose missing photos privately in Render Shell, use this read-only check. It prints counts and storage location, not photo content, captions, credentials, or names:
+
+```sh
+python - <<'PY'
+import os, sqlite3
+from pathlib import Path
+p=Path(os.environ.get('TRF_DATA_DIR','instance'))
+print('Storage directory:', p)
+if not (p/'trf.sqlite3').exists():
+    print('No database at the configured location; do not reset or overwrite it.')
+else:
+    with sqlite3.connect(f'file:{p / "trf.sqlite3"}?mode=ro',uri=True) as c:
+        for kind in ('recent','childhood'):
+            ids=[r[0] for r in c.execute('SELECT id FROM photos WHERE kind=?',(kind,))]
+            print(kind, 'records:', len(ids), 'missing image files:', sum(not (p/'photos'/f'{i}.jpg').exists() for i in ids))
+PY
+```

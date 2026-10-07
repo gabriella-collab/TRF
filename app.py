@@ -3,7 +3,7 @@ from pathlib import Path
 from datetime import timedelta
 from collections import defaultdict, deque
 from functools import wraps
-from flask import Flask, render_template, request, redirect, url_for, session, abort, send_file, flash
+from flask import Flask, render_template, request, redirect, url_for, session, abort, send_file, flash, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -51,7 +51,7 @@ def create_app(config=None):
   response.headers['X-Content-Type-Options']='nosniff'
   response.headers['X-Frame-Options']='DENY'
   response.headers['Referrer-Policy']='same-origin'
-  response.headers['Content-Security-Policy']="default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
+  response.headers['Content-Security-Policy']="default-src 'self'; img-src 'self' blob:; style-src 'self'; script-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
   return response
  @app.context_processor
  def context():
@@ -86,7 +86,7 @@ def create_app(config=None):
  @app.get('/')
  @private
  def home():
-  responses,_=all_data();return render_template('home.html',completed=responses)
+  responses,photos=all_data();return render_template('home.html',completed=responses,photos=[p for p in photos if p['kind']=='recent'])
  @app.route('/updates',methods=['GET','POST'])
  @private
  def updates():
@@ -103,21 +103,34 @@ def create_app(config=None):
    if request.method=='POST':
     answers={k:request.form.get(k,'')[:3000] for k,_ in FIELDS}
     c.execute('INSERT OR REPLACE INTO responses VALUES(?,?,datetime("now"))',(name,json.dumps(answers)))
-    flash('Your answers are saved.');return redirect(url_for('member',name=name))
+    flash('Your answers are saved. Next: choose photos and upload them.');return redirect(url_for('member',name=name,_anchor='photos'))
    row=c.execute('SELECT * FROM responses WHERE name=?',(name,)).fetchone()
    photos=c.execute('SELECT * FROM photos WHERE name=? ORDER BY rowid',(name,)).fetchall()
   groups=[];offset=0
   for heading,labels in SECTIONS.items():
    groups.append((heading,FIELDS[offset:offset+len(labels)]));offset+=len(labels)
   return render_template('member.html',name=name,groups=groups,answers=json.loads(row['answers']) if row else {},photos=photos,updated=row['updated'] if row else None)
+ def upload_result(name,message,success=False,status=400):
+  if request.accept_mimetypes.best=='application/json':
+   with db() as c:photos=c.execute('SELECT * FROM photos WHERE name=? ORDER BY rowid',(name,)).fetchall()
+   return jsonify(success=success,message=message,gallery=render_template('_photo_gallery.html',name=name,photos=photos)),200 if success else status
+  flash(message);return redirect(url_for('member',name=name,_anchor='photos'))
+ @app.errorhandler(413)
+ def too_large(error):
+  message='That upload is too large. Choose up to 5 photos, each 10 MB or smaller.'
+  if request.accept_mimetypes.best=='application/json':return jsonify(success=False,message=message),413
+  if request.view_args and request.view_args.get('name') in NAMES:
+   flash(message);return redirect(url_for('member',name=request.view_args['name'],_anchor='photos'))
+  return message,413
  @app.post('/crew/<name>/photos')
  @private
  def upload(name):
   if name not in NAMES:abort(404)
   kind=request.form.get('kind');files=[f for f in request.files.getlist('photos') if f.filename]
-  if kind not in ('recent','childhood') or not files:flash('Choose a photo first.');return redirect(url_for('member',name=name))
-  if len(files)>(5 if kind=='recent' else 1):
-   flash('Upload up to 5 recent photos or one childhood photo at a time.');return redirect(url_for('member',name=name))
+  replace_id=request.form.get('replace_id')
+  if kind not in ('recent','childhood') or not files:return upload_result(name,'Choose a photo first.')
+  if len(files)>(1 if replace_id or kind=='childhood' else 5):
+   return upload_result(name,'Choose one replacement or childhood photo, or up to 5 recent photos.')
   prepared=[]
   try:
    for f in files:
@@ -128,15 +141,31 @@ def create_app(config=None):
      im.load();clean=ImageOps.exif_transpose(im).convert('RGB');clean.thumbnail((2400,2400))
      out=io.BytesIO();clean.save(out,format='JPEG',quality=88);prepared.append((secrets.token_hex(16),out.getvalue()))
   except (UnidentifiedImageError,OSError,ValueError,Image.DecompressionBombError) as e:
-   flash(str(e) if isinstance(e,ValueError) else 'This photo could not be read. Try another image.');return redirect(url_for('member',name=name))
-  with db() as c:
-   c.execute('BEGIN IMMEDIATE')
-   count=c.execute('SELECT count(*) FROM photos WHERE name=? AND kind=?',(name,kind)).fetchone()[0]
-   if count+len(prepared)>(5 if kind=='recent' else 1):flash('Keep up to 5 recent photos and one childhood photo. Remove a photo to replace it.');return redirect(url_for('member',name=name))
-   for ident,content in prepared:
-    (data/'photos'/f'{ident}.jpg').write_bytes(content)
-    c.execute('INSERT INTO photos VALUES(?,?,?,?)',(ident,name,kind,request.form.get('caption','')[:300]))
-  flash('Photos uploaded.');return redirect(url_for('member',name=name))
+   return upload_result(name,str(e) if isinstance(e,ValueError) else 'This photo could not be read. Try another image.')
+  written=[]
+  try:
+   with db() as c:
+    c.execute('BEGIN IMMEDIATE')
+    old=None
+    if replace_id:
+     old=c.execute('SELECT * FROM photos WHERE id=? AND name=? AND kind=?',(replace_id,name,kind)).fetchone()
+     if not old:return upload_result(name,'That photo is no longer available to replace. Refresh and try again.',status=409)
+    count=c.execute('SELECT count(*) FROM photos WHERE name=? AND kind=?',(name,kind)).fetchone()[0]
+    if count+len(prepared)-(1 if old else 0)>(5 if kind=='recent' else 1):
+     return upload_result(name,'Keep up to 5 recent photos and one childhood photo. Use Replace or Remove on an existing photo.')
+    caption=request.form.get('caption',old['caption'] if old else '')[:300]
+    for ident,content in prepared:
+     path=data/'photos'/f'{ident}.jpg';written.append(path);path.write_bytes(content)
+     if old:c.execute('UPDATE photos SET id=?,caption=? WHERE id=?',(ident,caption,replace_id))
+     else:c.execute('INSERT INTO photos VALUES(?,?,?,?)',(ident,name,kind,caption))
+  except (OSError,sqlite3.Error):
+   for path in written:path.unlink(missing_ok=True)
+   app.logger.exception('Photo storage failed')
+   return upload_result(name,'The photo could not be saved. Your existing photos are unchanged. Please try again.',status=503)
+  if replace_id:
+   try:(data/'photos'/f'{replace_id}.jpg').unlink(missing_ok=True)
+   except OSError:app.logger.warning('Old replacement file could not be removed')
+  return upload_result(name,'Uploaded ✓ — your photos are saved.' if not replace_id else 'Uploaded ✓ — your replacement is saved.',success=True)
  @app.get('/photos/<ident>')
  @private
  def photo(ident):
@@ -150,7 +179,7 @@ def create_app(config=None):
    row=c.execute('SELECT name FROM photos WHERE id=?',(ident,)).fetchone()
    if not row:abort(404)
    c.execute('DELETE FROM photos WHERE id=?',(ident,))
-  (data/'photos'/f'{ident}.jpg').unlink(missing_ok=True);flash('Photo removed.');return redirect(url_for('member',name=row['name']))
+  (data/'photos'/f'{ident}.jpg').unlink(missing_ok=True);return upload_result(row['name'],'Photo removed.',success=True)
  @app.get('/gratitude')
  @private
  def gratitude():
